@@ -1,0 +1,757 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#2563eb">
+  <meta name="description" content="Secure Unlocker - Manage encrypted mounts">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Secure Unlocker">
+  <title>Secure Unlocker</title>
+  <link rel="manifest" href="/manifest.json">
+  <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
+  <link rel="icon" type="image/png" sizes="512x512" href="/icon-512.png">
+  <link rel="apple-touch-icon" href="/icon-192.png">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+      color: #1f2937;
+    }
+
+    .container {
+      max-width: 600px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+
+    header {
+      background: white;
+      border-radius: 16px;
+      padding: 24px;
+      margin-bottom: 20px;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
+
+    h1 {
+      font-size: 28px;
+      font-weight: 700;
+      color: #2563eb;
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .lock-icon {
+      width: 32px;
+      height: 32px;
+    }
+
+    .subtitle {
+      color: #6b7280;
+      font-size: 14px;
+    }
+
+    .status-bar {
+      background: white;
+      border-radius: 12px;
+      padding: 16px;
+      margin-bottom: 20px;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .status-indicator {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 14px;
+      font-weight: 500;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #10b981;
+      animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+
+    .refresh-btn {
+      background: #2563eb;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      padding: 8px 16px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .refresh-btn:active {
+      background: #1d4ed8;
+    }
+
+    .mounts-list {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .mount-card {
+      background: white;
+      border-radius: 12px;
+      padding: 20px;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+
+    .mount-card:active {
+      transform: scale(0.98);
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+    }
+
+    .mount-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+
+    .mount-name {
+      font-size: 18px;
+      font-weight: 600;
+      color: #1f2937;
+    }
+
+    .mount-status {
+      padding: 4px 12px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .mount-status.mounted {
+      background: #d1fae5;
+      color: #065f46;
+    }
+
+    .mount-status.unmounted {
+      background: #fee2e2;
+      color: #991b1b;
+    }
+
+    .mount-actions {
+      display: flex;
+      gap: 8px;
+      margin-top: 16px;
+    }
+
+    .btn {
+      flex: 1;
+      padding: 12px;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+    }
+
+    .btn-primary {
+      background: #2563eb;
+      color: white;
+    }
+
+    .btn-primary:active {
+      background: #1d4ed8;
+    }
+
+    .btn-danger {
+      background: #dc2626;
+      color: white;
+    }
+
+    .btn-danger:active {
+      background: #b91c1c;
+    }
+
+    .btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .password-modal {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.5);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      z-index: 1000;
+    }
+
+    .password-modal.active {
+      display: flex;
+    }
+
+    .modal-content {
+      background: white;
+      border-radius: 16px;
+      padding: 24px;
+      max-width: 400px;
+      width: 100%;
+      box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+    }
+
+    .modal-header {
+      font-size: 20px;
+      font-weight: 700;
+      margin-bottom: 16px;
+      color: #1f2937;
+    }
+
+    .form-group {
+      margin-bottom: 16px;
+    }
+
+    label {
+      display: block;
+      font-size: 14px;
+      font-weight: 500;
+      margin-bottom: 8px;
+      color: #374151;
+    }
+
+    input[type="password"] {
+      width: 100%;
+      padding: 12px;
+      border: 2px solid #e5e7eb;
+      border-radius: 8px;
+      font-size: 16px;
+      transition: border-color 0.2s;
+    }
+
+    input[type="password"]:focus {
+      outline: none;
+      border-color: #2563eb;
+    }
+
+    .modal-actions {
+      display: flex;
+      gap: 8px;
+      margin-top: 20px;
+    }
+
+    .btn-secondary {
+      background: #f3f4f6;
+      color: #374151;
+    }
+
+    .btn-secondary:active {
+      background: #e5e7eb;
+    }
+
+    .loading {
+      text-align: center;
+      padding: 40px;
+      color: white;
+      font-size: 16px;
+    }
+
+    .error {
+      background: #fef2f2;
+      border: 2px solid #fecaca;
+      color: #991b1b;
+      padding: 16px;
+      border-radius: 12px;
+      margin-bottom: 20px;
+      font-size: 14px;
+    }
+
+    .empty-state {
+      background: white;
+      border-radius: 12px;
+      padding: 40px 20px;
+      text-align: center;
+      color: #6b7280;
+    }
+
+    .empty-state-icon {
+      font-size: 48px;
+      margin-bottom: 16px;
+    }
+
+    .settings-btn {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      width: 56px;
+      height: 56px;
+      background: white;
+      border: none;
+      border-radius: 50%;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: transform 0.2s;
+      z-index: 999;
+    }
+
+    .settings-btn:active {
+      transform: scale(0.95);
+    }
+
+    .secret-display {
+      background: #f9fafb;
+      border: 2px solid #e5e7eb;
+      border-radius: 8px;
+      padding: 12px;
+      font-family: monospace;
+      font-size: 12px;
+      word-break: break-all;
+      margin: 12px 0;
+      max-height: 150px;
+      overflow-y: auto;
+    }
+
+    .btn-group {
+      display: flex;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .btn-small {
+      padding: 8px 16px;
+      font-size: 13px;
+    }
+
+    .warning-box {
+      background: #fef3c7;
+      border: 2px solid #fbbf24;
+      color: #92400e;
+      padding: 12px;
+      border-radius: 8px;
+      margin-bottom: 16px;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>
+        <svg class="lock-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path>
+        </svg>
+        Secure Unlocker
+      </h1>
+      <div class="subtitle">Manage encrypted mounts</div>
+    </header>
+
+    <div class="status-bar">
+      <div class="status-indicator">
+        <div class="status-dot"></div>
+        <span id="status-text">Connected</span>
+      </div>
+      <button class="refresh-btn" onclick="loadMounts()">Refresh</button>
+    </div>
+
+    <div id="error-container"></div>
+    <div id="mounts-container" class="loading">Loading...</div>
+  </div>
+
+  <div id="password-modal" class="password-modal">
+    <div class="modal-content">
+      <div class="modal-header">Enter Password</div>
+      <form id="password-form">
+        <div class="form-group">
+          <label for="password">Password for <span id="mount-name-label"></span></label>
+          <input type="password" id="password" name="password" autocomplete="off" required>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-secondary" onclick="closePasswordModal()">Cancel</button>
+          <button type="submit" class="btn btn-primary">Unlock</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div id="settings-modal" class="password-modal">
+    <div class="modal-content">
+      <div class="modal-header">API Authentication</div>
+
+      <div class="warning-box">
+        <strong>Configure your server:</strong> Add this public key to your NixOS configuration's allowedPublicKeys list. The private key stays securely in your browser and never leaves this device.
+      </div>
+
+      <div class="form-group">
+        <label>Your Public Key</label>
+        <div class="secret-display" id="secret-display"></div>
+        <div class="btn-group">
+          <button type="button" class="btn btn-primary btn-small" onclick="copySecret()">
+            Copy to Clipboard
+          </button>
+          <button type="button" class="btn btn-danger btn-small" onclick="regenerateSecret()">
+            Regenerate Key Pair
+          </button>
+        </div>
+      </div>
+
+      <div class="modal-actions">
+        <button type="button" class="btn btn-secondary" onclick="closeSettingsModal()">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <button class="settings-btn" onclick="openSettingsModal()" title="Settings">
+    <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+    </svg>
+  </button>
+
+  <script>
+    let currentMountName = null;
+    let apiSecret = null;
+
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js').catch(() => {});
+    }
+
+    // Key pair management
+    async function getOrCreateKeyPair() {
+      let privateKey = localStorage.getItem('ed25519-private-key');
+      let publicKey = localStorage.getItem('ed25519-public-key');
+
+      if (!privateKey || !publicKey) {
+        if (!window.crypto || !window.crypto.subtle) {
+          alert('Error: Web Crypto API not available. Please access this page via HTTPS or localhost.');
+          throw new Error('Web Crypto API not available');
+        }
+
+        // Generate Ed25519 key pair
+        const keyPair = await window.crypto.subtle.generateKey(
+          {
+            name: 'Ed25519',
+          },
+          true, // extractable
+          ['sign', 'verify']
+        );
+
+        // Export keys to store them
+        const privateKeyRaw = await window.crypto.subtle.exportKey('pkcs8', keyPair.privateKey);
+        const publicKeyRaw = await window.crypto.subtle.exportKey('spki', keyPair.publicKey);
+
+        // Convert to hex for storage
+        privateKey = Array.from(new Uint8Array(privateKeyRaw), b => b.toString(16).padStart(2, '0')).join('');
+        publicKey = Array.from(new Uint8Array(publicKeyRaw), b => b.toString(16).padStart(2, '0')).join('');
+
+        localStorage.setItem('ed25519-private-key', privateKey);
+        localStorage.setItem('ed25519-public-key', publicKey);
+      }
+
+      return { privateKey, publicKey };
+    }
+
+    async function getPublicKeyOnly() {
+      const keys = await getOrCreateKeyPair();
+      // Extract just the 32-byte raw public key from the SPKI structure
+      // SPKI has 12 bytes of header, then the 32-byte public key
+      const spkiHex = keys.publicKey;
+      const spkiBytes = spkiHex.match(/.{1,2}/g).map(byte => parseInt(byte, 16));
+      const rawPublicKey = spkiBytes.slice(12); // Skip the SPKI header
+      apiSecret = Array.from(rawPublicKey, b => b.toString(16).padStart(2, '0')).join('');
+      return apiSecret;
+    }
+
+    async function regenerateSecret() {
+      if (!confirm('Are you sure? This will invalidate your current key pair and you\'ll need to update your server configuration.')) {
+        return;
+      }
+      localStorage.removeItem('ed25519-private-key');
+      localStorage.removeItem('ed25519-public-key');
+      const newPublicKey = await getPublicKeyOnly();
+      document.getElementById('secret-display').textContent = newPublicKey;
+      alert('Key pair regenerated! Make sure to update your server configuration with the new public key.');
+    }
+
+    function copySecret() {
+      navigator.clipboard.writeText(apiSecret).then(() => {
+        alert('Public key copied to clipboard!');
+      }).catch(() => {
+        alert('Failed to copy to clipboard');
+      });
+    }
+
+    async function openSettingsModal() {
+      const publicKey = await getPublicKeyOnly();
+      document.getElementById('secret-display').textContent = publicKey;
+      document.getElementById('settings-modal').classList.add('active');
+    }
+
+    function closeSettingsModal() {
+      document.getElementById('settings-modal').classList.remove('active');
+    }
+
+    // Ed25519 signature generation
+    async function generateSignature(method, url, body) {
+      // Check for secure context (required for crypto.subtle)
+      if (!window.crypto || !window.crypto.subtle) {
+        throw new Error('Web Crypto API not available. This app requires HTTPS or localhost.');
+      }
+
+      const keys = await getOrCreateKeyPair();
+      const timestamp = Math.floor(Date.now() / 1000).toString();
+
+      // Always calculate body hash for consistency (empty string if no body)
+      // If body is a string, parse it back to object for consistent hashing
+      let bodyObj = null;
+      if (body) {
+        bodyObj = typeof body === 'string' ? JSON.parse(body) : body;
+      }
+      const bodyStr = bodyObj ? JSON.stringify(bodyObj) : '';
+      const encoder = new TextEncoder();
+      const data = encoder.encode(bodyStr);
+      const hashBuffer = await window.crypto.subtle.digest('SHA-256', data);
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      const bodyHash = Array.from(hashArray, b => b.toString(16).padStart(2, '0')).join('');
+
+      // Build the message to sign: METHOD:URL:TIMESTAMP:BODYHASH
+      // URL includes path and query string for security
+      const message = `${method}:${url}:${timestamp}:${bodyHash}`;
+
+      // Debug logging
+      console.log('Client signature generation:', {
+        method,
+        url,
+        timestamp,
+        bodyStr,
+        bodyHash,
+        message
+      });
+
+      // Import the private key
+      const privateKeyBytes = new Uint8Array(keys.privateKey.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
+      const privateKeyObject = await window.crypto.subtle.importKey(
+        'pkcs8',
+        privateKeyBytes,
+        {
+          name: 'Ed25519',
+        },
+        false,
+        ['sign']
+      );
+
+      // Sign the message (reuse encoder from above)
+      const signatureBuffer = await window.crypto.subtle.sign(
+        'Ed25519',
+        privateKeyObject,
+        encoder.encode(message)
+      );
+
+      const signatureArray = Array.from(new Uint8Array(signatureBuffer));
+      const signatureHex = Array.from(signatureArray, b => b.toString(16).padStart(2, '0')).join('');
+
+      // Extract raw public key (32 bytes) from SPKI structure
+      const publicKeyBytes = keys.publicKey.match(/.{1,2}/g).map(byte => parseInt(byte, 16));
+      const rawPublicKey = publicKeyBytes.slice(12); // Skip SPKI header
+      const publicKeyHex = Array.from(rawPublicKey, b => b.toString(16).padStart(2, '0')).join('');
+
+      return {
+        signature: signatureHex,
+        timestamp: timestamp,
+        publicKey: publicKeyHex
+      };
+    }
+
+    async function authenticatedFetch(url, options = {}) {
+      const method = options.method || 'GET';
+      // Use full URL path with query string for signature (matches server's req.originalUrl)
+      const parsedUrl = new URL(url, window.location.origin);
+      const urlPath = parsedUrl.pathname + parsedUrl.search;
+      const body = options.body;
+
+      const { signature, timestamp, publicKey } = await generateSignature(method, urlPath, body);
+
+      const headers = {
+        ...options.headers,
+        'X-Signature': signature,
+        'X-Timestamp': timestamp,
+        'X-Public-Key': publicKey
+      };
+
+      return fetch(url, {
+        ...options,
+        headers
+      });
+    }
+
+    // Initialize key pair on page load
+    getOrCreateKeyPair().catch(err => console.error('Failed to initialize key pair:', err));
+
+    async function loadMounts() {
+      const container = document.getElementById('mounts-container');
+      const errorContainer = document.getElementById('error-container');
+
+      try {
+        const response = await authenticatedFetch('/list');
+        if (!response.ok) throw new Error('Failed to fetch mounts');
+
+        const mounts = await response.json();
+        errorContainer.innerHTML = '';
+
+        if (Object.keys(mounts).length === 0) {
+          container.innerHTML = `
+            <div class="empty-state">
+              <div class="empty-state-icon">🔒</div>
+              <div>No mounts configured</div>
+            </div>
+          `;
+          return;
+        }
+
+        container.innerHTML = `
+          <div class="mounts-list">
+            ${Object.entries(mounts).map(([name, status]) => `
+              <div class="mount-card">
+                <div class="mount-header">
+                  <div class="mount-name">${escapeHtml(name)}</div>
+                  <div class="mount-status ${status}">${status}</div>
+                </div>
+                <div class="mount-actions">
+                  ${status === 'unmounted'
+                    ? `<button class="btn btn-primary" onclick="showPasswordModal('${escapeHtml(name)}')">
+                         <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z"></path>
+                         </svg>
+                         Mount
+                       </button>`
+                    : `<button class="btn btn-danger" onclick="unmount('${escapeHtml(name)}')">
+                         <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path>
+                         </svg>
+                         Unmount
+                       </button>`
+                  }
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        `;
+      } catch (error) {
+        errorContainer.innerHTML = `<div class="error">Error: ${escapeHtml(error.message)}</div>`;
+        container.innerHTML = '';
+      }
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    function showPasswordModal(mountName) {
+      currentMountName = mountName;
+      document.getElementById('mount-name-label').textContent = mountName;
+      document.getElementById('password').value = '';
+      document.getElementById('password-modal').classList.add('active');
+      setTimeout(() => document.getElementById('password').focus(), 100);
+    }
+
+    function closePasswordModal() {
+      document.getElementById('password-modal').classList.remove('active');
+      currentMountName = null;
+    }
+
+    document.getElementById('password-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const password = document.getElementById('password').value;
+      const submitBtn = e.target.querySelector('button[type="submit"]');
+
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Unlocking...';
+
+      try {
+        const response = await authenticatedFetch(`/mount/${currentMountName}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password })
+        });
+
+        if (!response.ok) {
+          const data = await response.json();
+          throw new Error(data.error || 'Failed to mount');
+        }
+
+        closePasswordModal();
+        setTimeout(loadMounts, 1000);
+      } catch (error) {
+        alert(error.message);
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Unlock';
+      }
+    });
+
+    async function unmount(mountName) {
+      if (!confirm(`Are you sure you want to unmount ${mountName}?`)) return;
+
+      try {
+        const response = await authenticatedFetch(`/unmount/${mountName}`, {
+          method: 'POST'
+        });
+
+        if (!response.ok) {
+          const data = await response.json();
+          throw new Error(data.error || 'Failed to unmount');
+        }
+
+        setTimeout(loadMounts, 500);
+      } catch (error) {
+        alert(error.message);
+      }
+    }
+
+    document.getElementById('password-modal').addEventListener('click', (e) => {
+      if (e.target.id === 'password-modal') {
+        closePasswordModal();
+      }
+    });
+
+    loadMounts();
+    setInterval(loadMounts, 10000);
+  </script>
+</body>
+</html>
