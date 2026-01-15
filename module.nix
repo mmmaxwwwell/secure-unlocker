@@ -14,13 +14,13 @@ let
   # Build the express server with esbuild
   serverApp = pkgs.buildNpmPackage {
     pname = "secure-unlocker-server";
-    version = "1.0.0";
+    version = "1.0.1";
 
     src = ./.;
 
     # Build once to get correct hash, then replace this placeholder
-    # Updated hash for @types/node v24
-    npmDepsHash = "sha256-A0kidXkJucaFKZuLgzYTqGtUffUvcknClbHeSyGouK4=";
+    # Updated hash for v1.0.1 with @types/node v24
+    npmDepsHash = "sha256-0camnGpc5Xhv4NsrRHFn6ANz9Kc8d/dE1H9bnpD5y2k=";
 
     buildPhase = ''
       runHook preBuild
