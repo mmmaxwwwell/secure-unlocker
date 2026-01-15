@@ -20,7 +20,7 @@ let
 
     # Build once to get correct hash, then replace this placeholder
     # Updated hash after adding express-rate-limit dependency
-    npmDepsHash = lib.fakeHash;
+    npmDepsHash = "sha256-A0kidXkJucaFKZuLgzYTqGtUffUvcknClbHeSyGouK4=";
 
     buildPhase = ''
       runHook preBuild
