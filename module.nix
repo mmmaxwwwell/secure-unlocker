@@ -29,7 +29,7 @@ let
       ${pkgs.esbuild}/bin/esbuild src/index.ts \
         --bundle \
         --platform=node \
-        --target=node22 \
+        --target=node24 \
         --outfile=dist/index.js \
         --minify \
         --tree-shaking=true \
@@ -46,7 +46,7 @@ let
       cp -r node_modules $out/lib/
       cp -r public/* $out/share/public/
 
-      makeWrapper ${pkgs.nodejs_22}/bin/node $out/bin/secure-unlocker-server \
+      makeWrapper ${pkgs.nodejs_24}/bin/node $out/bin/secure-unlocker-server \
         --add-flags "$out/lib/dist/index.js" \
         --set PUBLIC_DIR "$out/share/public"
 
