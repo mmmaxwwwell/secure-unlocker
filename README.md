@@ -12,6 +12,98 @@ A NixOS module for remotely unlocking LUKS-encrypted storage devices through a s
 - Secure password transmission through named pipes
 - Clean mount/unmount with proper LUKS device cleanup
 
+## Installation
+
+### Using with Nix Flakes (Recommended)
+
+Add this repository as a flake input in your `flake.nix`:
+
+```nix
+{
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    secure-unlocker = {
+      url = "github:mmmaxwwwell/secure-unlocker";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+  };
+
+  outputs = { self, nixpkgs, secure-unlocker, ... }: {
+    nixosConfigurations.your-hostname = nixpkgs.lib.nixosSystem {
+      system = "x86_64-linux";
+      modules = [
+        secure-unlocker.nixosModules.default
+        ./configuration.nix
+      ];
+    };
+  };
+}
+```
+
+Then in your `configuration.nix`, configure the module:
+
+```nix
+{ config, lib, pkgs, ... }:
+
+{
+  services.secure-unlocker = {
+    enable = true;
+    allowedPublicKeys = [
+      "a1b2c3d4e5f6789..."  # Your public key from the PWA
+    ];
+    mounts = {
+      my-backup-drive = {
+        type = "block";
+        source = "/dev/sdb1";
+        mountPoint = "/mnt/backup";
+      };
+    };
+  };
+}
+```
+
+### Using without Flakes (Traditional Nix)
+
+Add the module to your NixOS configuration using `fetchTarball`:
+
+```nix
+{ config, lib, pkgs, ... }:
+
+{
+  imports = [
+    "${fetchTarball "https://github.com/mmmaxwwwell/secure-unlocker/archive/main.tar.gz"}/module.nix"
+  ];
+
+  services.secure-unlocker = {
+    enable = true;
+    allowedPublicKeys = [
+      "a1b2c3d4e5f6789..."  # Your public key from the PWA
+    ];
+    mounts = {
+      my-backup-drive = {
+        type = "block";
+        source = "/dev/sdb1";
+        mountPoint = "/mnt/backup";
+      };
+    };
+  };
+}
+```
+
+For more reproducibility, you can pin to a specific commit:
+
+```nix
+imports = [
+  "${fetchTarball "https://github.com/mmmaxwwwell/secure-unlocker/archive/COMMIT_HASH.tar.gz"}/module.nix"
+];
+```
+
+After adding the module, rebuild your system:
+
+```bash
+sudo nixos-rebuild switch
+```
+
 ## Architecture
 
 The module consists of:
@@ -74,42 +166,34 @@ The PWA automatically generates an Ed25519 key pair for you on first use. To get
 
 ### 3. Configure the NixOS Module
 
-Add the module to your NixOS configuration:
+See the [Installation](#installation) section above for how to add the module to your system. Configure your encrypted mounts in your `configuration.nix`:
 
 ```nix
-{ config, lib, pkgs, ... }:
+services.secure-unlocker = {
+  enable = true;
+  listenAddress = "127.0.0.1";  # Only listen on localhost (default)
+  port = 3456;                   # Default port
 
-{
-  imports = [
-    "${fetchTarball "https://github.com/mmmaxwwwell/secure-unlocker/archive/main.tar.gz"}/module.nix"
+  # Add the public keys from your PWA clients
+  allowedPublicKeys = [
+    "a1b2c3d4e5f6789..."  # 64-character hex string from your PWA
   ];
 
-  services.secure-unlocker = {
-    enable = true;
-    listenAddress = "127.0.0.1";  # Only listen on localhost (default)
-    port = 3456;                   # Default port
+  # Define your encrypted mounts
+  mounts = {
+    my-backup-drive = {
+      type = "block";
+      source = "/dev/sdb1";
+      mountPoint = "/mnt/backup";
+    };
 
-    # Add the public keys from your PWA clients
-    allowedPublicKeys = [
-      "a1b2c3d4e5f6789..."  # 64-character hex string from your PWA
-    ];
-
-    # Define your encrypted mounts
-    mounts = {
-      my-backup-drive = {
-        type = "block";
-        source = "/dev/sdb1";
-        mountPoint = "/mnt/backup";
-      };
-
-      secret-storage = {
-        type = "loop";
-        source = "/var/encrypted/storage.img";
-        mountPoint = "/mnt/secrets";
-      };
+    secret-storage = {
+      type = "loop";
+      source = "/var/encrypted/storage.img";
+      mountPoint = "/mnt/secrets";
     };
   };
-}
+};
 ```
 
 Rebuild your system:
