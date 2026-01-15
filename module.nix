@@ -19,7 +19,7 @@ let
     src = ./.;
 
     # Build once to get correct hash, then replace this placeholder
-    # Updated hash after adding express-rate-limit dependency
+    # Updated hash for @types/node v24
     npmDepsHash = "sha256-A0kidXkJucaFKZuLgzYTqGtUffUvcknClbHeSyGouK4=";
 
     buildPhase = ''
