@@ -7,8 +7,8 @@ let
   pipesDir = "/var/lib/secure-unlocker/pipes";
 
   initScript = pkgs.writeShellScriptBin "secure-unlocker-init" ''
-    export PATH=${lib.makeBinPath [ pkgs.cryptsetup pkgs.util-linux pkgs.e2fsprogs ]}:$PATH
-    ${builtins.readFile ./init-encrypted.sh}
+    export PATH=${lib.makeBinPath [ pkgs.cryptsetup pkgs.util-linux pkgs.e2fsprogs pkgs.btrfs-progs ]}:$PATH
+    ${builtins.readFile ./secure-unlocker-init.sh}
   '';
 
   # Build the express server with esbuild
@@ -131,7 +131,7 @@ let
         mkdir -p "$MOUNT_POINT"
 
         # Mount the decrypted device
-        ${pkgs.util-linux}/bin/mount "/dev/mapper/$MAPPER_NAME" "$MOUNT_POINT"
+        ${pkgs.util-linux}/bin/mount -t ${mount.fsType} "/dev/mapper/$MAPPER_NAME" "$MOUNT_POINT"
 
         echo "Successfully mounted $MAPPER_NAME at $MOUNT_POINT"
 
@@ -161,6 +161,13 @@ let
         type = types.str;
         description = "Path where the device should be mounted";
         example = "/mnt/encrypted";
+      };
+
+      fsType = mkOption {
+        type = types.enum [ "ext4" "btrfs" ];
+        default = "ext4";
+        description = "Filesystem type for the encrypted device";
+        example = "btrfs";
       };
     };
   });
@@ -203,11 +210,13 @@ in
             type = "loop";
             source = "/var/encrypted/storage.img";
             mountPoint = "/mnt/encrypted";
+            fsType = "ext4";  # Optional, defaults to ext4
           };
           my-block-drive = {
             type = "block";
             source = "/dev/sda1";
             mountPoint = "/mnt/external";
+            fsType = "btrfs";
           };
         }
       '';

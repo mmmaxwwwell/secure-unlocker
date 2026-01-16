@@ -56,6 +56,7 @@ Then in your `configuration.nix`, configure the module:
         type = "block";
         source = "/dev/sdb1";
         mountPoint = "/mnt/backup";
+        fsType = "ext4";  # Optional, defaults to ext4
       };
     };
   };
@@ -84,6 +85,7 @@ Add the module to your NixOS configuration using `fetchTarball`:
         type = "block";
         source = "/dev/sdb1";
         mountPoint = "/mnt/backup";
+        fsType = "ext4";  # Optional, defaults to ext4
       };
     };
   };
@@ -130,7 +132,12 @@ This will:
 3. Prompt for confirmation
 4. Ask you to set a LUKS password
 5. Format the device with LUKS2 encryption
-6. Create an ext4 filesystem inside
+6. Create an ext4 filesystem inside (default)
+
+To use btrfs instead:
+```bash
+sudo secure-unlocker-init --source /dev/sdb1 --type block --fsType btrfs
+```
 
 #### For a file-backed loop device:
 
@@ -142,7 +149,12 @@ This will:
 1. Create parent directories if needed
 2. Create a sparse file of the specified size
 3. Initialize LUKS2 encryption
-4. Create an ext4 filesystem inside
+4. Create an ext4 filesystem inside (default)
+
+To use btrfs instead:
+```bash
+sudo secure-unlocker-init --source /var/encrypted/storage.img --type loop --size 10G --fsType btrfs
+```
 
 #### Adding additional passwords to existing devices:
 
@@ -185,12 +197,14 @@ services.secure-unlocker = {
       type = "block";
       source = "/dev/sdb1";
       mountPoint = "/mnt/backup";
+      fsType = "ext4";  # Optional, defaults to ext4
     };
 
     secret-storage = {
       type = "loop";
       source = "/var/encrypted/storage.img";
       mountPoint = "/mnt/secrets";
+      fsType = "btrfs";  # Use btrfs filesystem
     };
   };
 };
@@ -318,6 +332,16 @@ security.acme = {
 - The directory will be created automatically if it doesn't exist
 - Example: `"/mnt/backup"`
 
+###### `fsType`
+- Type: `enum ["ext4", "btrfs"]`
+- Required: No
+- Default: `"ext4"`
+- Description: Filesystem type for the encrypted device
+- Valid values:
+  - `"ext4"`: ext4 filesystem (default)
+  - `"btrfs"`: btrfs filesystem
+- Example: `"btrfs"`
+
 ### Example Configuration
 
 ```nix
@@ -331,12 +355,14 @@ services.secure-unlocker = {
       type = "block";
       source = "/dev/disk/by-uuid/12345678-1234-1234-1234-123456789abc";
       mountPoint = "/mnt/external-backup";
+      fsType = "ext4";  # Optional, defaults to ext4
     };
 
     encrypted-data = {
       type = "loop";
       source = "/var/lib/encrypted/data.img";
       mountPoint = "/mnt/encrypted-data";
+      fsType = "btrfs";  # Use btrfs filesystem
     };
   };
 };
@@ -664,3 +690,94 @@ systemd.services.my-backup-service = {
   # ... service that needs the encrypted mount
 };
 ```
+
+## Development
+
+### Running Integration Tests
+
+The project includes integration tests that run in a NixOS VM. These tests verify the complete workflow: creating an encrypted loop device, mounting it, writing data, unmounting, remounting, and verifying data persistence.
+
+#### Using Flakes
+
+```bash
+# Run all checks (includes integration tests)
+nix flake check
+
+# Build and run a specific test
+nix build .#checks.x86_64-linux.integration-test
+
+# Run with verbose output
+nix build .#checks.x86_64-linux.integration-test --print-build-logs
+```
+
+#### Without Flakes (Traditional Nix)
+
+```bash
+# Run all integration tests
+nix-build tests.nix
+
+# Run a specific test
+nix-build tests.nix -A integration-test
+
+# Run with verbose output
+nix-build tests.nix -A integration-test 2>&1 | tee test.log
+```
+
+#### Standalone Script
+
+For quick local testing (requires root):
+
+```bash
+# Build the init script first
+nix build
+
+# Run the standalone test script
+sudo ./integration-test.sh
+
+# With custom options
+sudo ./integration-test.sh --test-size 64M --init-args '--some-future-option'
+```
+
+### Adding New Tests
+
+Tests are defined in `tests.nix` using the `mkIntegrationTest` helper function. This makes it easy to add tests for different configurations (e.g., different filesystem types):
+
+```nix
+# In tests.nix
+{
+  # Existing ext4 test
+  integration-test = mkIntegrationTest {
+    name = "ext4";
+    testSize = "32M";
+  };
+
+  # Example: Add a btrfs test when filesystem option is implemented
+  integration-test-btrfs = mkIntegrationTest {
+    name = "btrfs";
+    extraInitArgs = "--filesystem btrfs";
+    testSize = "64M";  # btrfs needs more space
+  };
+}
+```
+
+Then add the new test to `flake.nix`:
+
+```nix
+checks = nixpkgs.lib.genAttrs [ "x86_64-linux" "aarch64-linux" ] (system:
+  let
+    tests = import ./tests.nix { /* ... */ };
+  in {
+    inherit (tests) integration-test integration-test-btrfs;
+  }
+);
+```
+
+### Test Configuration
+
+The `mkIntegrationTest` function accepts the following parameters:
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `name` | string | required | Test name suffix (e.g., "ext4" creates "secure-unlocker-ext4") |
+| `testSize` | string | "32M" | Size of the test loop device (must be ≥32M for LUKS2 headers) |
+| `extraInitArgs` | string | "" | Additional arguments passed to `secure-unlocker-init` |

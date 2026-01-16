@@ -5,16 +5,19 @@ set -euo pipefail
 
 # Parse arguments
 show_usage() {
-    echo "Usage: $0 --source <path> --type <type> [--size <size>]"
+    echo "Usage: $0 --source <path> --type <type> [--size <size>] [--fsType <fsType>]"
     echo ""
     echo "Arguments:"
-    echo "  --source <path>   Path to block device or file"
-    echo "  --type <type>     Type: 'block' or 'loop'"
-    echo "  --size <size>     Size (required for loop type, e.g., 10G, 500M)"
+    echo "  --source <path>     Path to block device or file"
+    echo "  --type <type>       Type: 'block' or 'loop'"
+    echo "  --size <size>       Size (required for loop type, e.g., 10G, 500M)"
+    echo "  --fsType <fsType>   Filesystem type: 'ext4' or 'btrfs' (default: ext4)"
     echo ""
     echo "Examples:"
     echo "  $0 --source /dev/sdb1 --type block"
+    echo "  $0 --source /dev/sdb1 --type block --fsType btrfs"
     echo "  $0 --source /var/encrypted/storage.img --type loop --size 10G"
+    echo "  $0 --source /var/encrypted/storage.img --type loop --size 10G --fsType btrfs"
     exit 1
 }
 
@@ -22,6 +25,7 @@ show_usage() {
 SOURCE=""
 TYPE=""
 SIZE=""
+FSTYPE="ext4"
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -35,6 +39,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --size)
             SIZE="$2"
+            shift 2
+            ;;
+        --fsType)
+            FSTYPE="$2"
             shift 2
             ;;
         *)
@@ -65,6 +73,11 @@ if [ "$TYPE" = "block" ] && [ -n "$SIZE" ]; then
     exit 1
 fi
 
+if [ "$FSTYPE" != "ext4" ] && [ "$FSTYPE" != "btrfs" ]; then
+    echo "Error: --fsType must be 'ext4' or 'btrfs'"
+    exit 1
+fi
+
 # Check if running as root
 if [ "$EUID" -ne 0 ]; then
     echo "Error: This script must be run as root (use sudo)"
@@ -76,6 +89,7 @@ echo "Type: $TYPE"
 if [ -n "$SIZE" ]; then
     echo "Size: $SIZE"
 fi
+echo "Filesystem Type: $FSTYPE"
 echo ""
 
 # Check if source already exists and is initialized
@@ -224,7 +238,7 @@ echo "LUKS2 encryption initialized successfully!"
 echo ""
 
 # Create filesystem on the encrypted device
-echo "Creating ext4 filesystem..."
+echo "Creating $FSTYPE filesystem..."
 echo "Opening the encrypted device temporarily..."
 
 # Generate a temporary mapper name
@@ -241,7 +255,11 @@ fi
 unset LUKS_PASSWORD LUKS_PASSWORD_CONFIRM
 
 # Create the filesystem
-mkfs.ext4 "/dev/mapper/$TEMP_MAPPER"
+if [ "$FSTYPE" = "ext4" ]; then
+    mkfs.ext4 "/dev/mapper/$TEMP_MAPPER"
+elif [ "$FSTYPE" = "btrfs" ]; then
+    mkfs.btrfs "/dev/mapper/$TEMP_MAPPER"
+fi
 
 if [ $? -ne 0 ]; then
     echo "Error: Failed to create filesystem"
@@ -261,7 +279,7 @@ if [ -n "$SIZE" ]; then
     echo "Size: $SIZE"
 fi
 echo "Encryption: LUKS2"
-echo "Filesystem: ext4"
+echo "Filesystem: $FSTYPE"
 echo ""
 echo "You can now use systemd-cryptenroll to add additional unlock methods:"
 echo "  systemd-cryptenroll --tpm2-device=auto $SOURCE"
