@@ -62,11 +62,14 @@ let
   mkCleanupScript = name: mount: pkgs.writeShellScript "secure-unlocker-cleanup-${name}" ''
     set -euo pipefail
 
-    MAPPER_NAME="secure-unlocker-${name}"
+    MAPPER_BASE="secure-unlocker-${name}"
     MOUNT_POINT="${mount.mountPoint}"
     MOUNT_TYPE="${mount.type}"
 
-    echo "Cleaning up $MAPPER_NAME..."
+    # Split sources by comma
+    IFS=',' read -ra SOURCES <<< "${mount.source}"
+
+    echo "Cleaning up $MAPPER_BASE..."
 
     # Unmount if mounted
     if ${pkgs.util-linux}/bin/mountpoint -q "$MOUNT_POINT"; then
@@ -74,22 +77,27 @@ let
       ${pkgs.util-linux}/bin/umount "$MOUNT_POINT" || true
     fi
 
-    # Close LUKS device if open
-    if [ -e "/dev/mapper/$MAPPER_NAME" ]; then
-      echo "Closing LUKS device $MAPPER_NAME..."
-      ${pkgs.cryptsetup}/bin/cryptsetup luksClose "$MAPPER_NAME" || true
-    fi
+    # Close LUKS devices (one per source)
+    for i in "''${!SOURCES[@]}"; do
+      MAPPER_NAME="$MAPPER_BASE-$i"
+      if [ -e "/dev/mapper/$MAPPER_NAME" ]; then
+        echo "Closing LUKS device $MAPPER_NAME..."
+        ${pkgs.cryptsetup}/bin/cryptsetup luksClose "$MAPPER_NAME" || true
+      fi
+    done
 
-    # Detach loop device if needed
+    # Detach loop devices if needed
     if [ "$MOUNT_TYPE" = "loop" ]; then
-      # Find and detach any loop devices for this source
-      for LOOP in $(${pkgs.util-linux}/bin/losetup -j "${mount.source}" | cut -d: -f1); do
-        echo "Detaching loop device $LOOP..."
-        ${pkgs.util-linux}/bin/losetup -d "$LOOP" || true
+      for SOURCE in "''${SOURCES[@]}"; do
+        # Find and detach any loop devices for this source
+        for LOOP in $(${pkgs.util-linux}/bin/losetup -j "$SOURCE" 2>/dev/null | cut -d: -f1); do
+          echo "Detaching loop device $LOOP..."
+          ${pkgs.util-linux}/bin/losetup -d "$LOOP" || true
+        done
       done
     fi
 
-    echo "Cleanup complete for $MAPPER_NAME"
+    echo "Cleanup complete for $MAPPER_BASE"
   '';
 
   # Script to continuously read from pipe and unlock/mount
@@ -97,12 +105,16 @@ let
     set -euo pipefail
 
     PIPE_PATH="${pipesDir}/${name}"
-    MAPPER_NAME="secure-unlocker-${name}"
-    SOURCE="${mount.source}"
+    MAPPER_BASE="secure-unlocker-${name}"
     MOUNT_POINT="${mount.mountPoint}"
     MOUNT_TYPE="${mount.type}"
+    FS_TYPE="${mount.fsType}"
+
+    # Split sources by comma
+    IFS=',' read -ra SOURCES <<< "${mount.source}"
 
     echo "Waiting for password on pipe: $PIPE_PATH"
+    echo "Number of devices: ''${#SOURCES[@]}"
 
     # Loop to continuously wait for passwords
     while true; do
@@ -115,30 +127,75 @@ let
         continue
       fi
 
-      echo "Password received, unlocking $SOURCE..."
+      echo "Password received, unlocking ''${#SOURCES[@]} device(s)..."
 
-      # Set up loop device if needed
-      if [ "$MOUNT_TYPE" = "loop" ]; then
-        LOOP_DEVICE=$(${pkgs.util-linux}/bin/losetup --find --show "$SOURCE")
-        CRYPT_SOURCE="$LOOP_DEVICE"
-      else
-        CRYPT_SOURCE="$SOURCE"
-      fi
+      # Track if all unlocks succeed
+      ALL_UNLOCKED=true
+      CRYPT_DEVICES=()
 
-      # Unlock with cryptsetup
-      if echo -n "$PASSWORD" | ${pkgs.cryptsetup}/bin/cryptsetup luksOpen "$CRYPT_SOURCE" "$MAPPER_NAME" -; then
+      # Unlock all devices
+      for i in "''${!SOURCES[@]}"; do
+        SOURCE="''${SOURCES[$i]}"
+        MAPPER_NAME="$MAPPER_BASE-$i"
+
+        echo "Unlocking device $((i+1))/''${#SOURCES[@]}: $SOURCE..."
+
+        # Set up loop device if needed
+        if [ "$MOUNT_TYPE" = "loop" ]; then
+          LOOP_DEVICE=$(${pkgs.util-linux}/bin/losetup --find --show "$SOURCE")
+          CRYPT_SOURCE="$LOOP_DEVICE"
+        else
+          CRYPT_SOURCE="$SOURCE"
+        fi
+
+        # Unlock with cryptsetup
+        if echo -n "$PASSWORD" | ${pkgs.cryptsetup}/bin/cryptsetup luksOpen "$CRYPT_SOURCE" "$MAPPER_NAME" -; then
+          CRYPT_DEVICES+=("/dev/mapper/$MAPPER_NAME")
+          echo "Successfully unlocked $SOURCE as $MAPPER_NAME"
+        else
+          echo "Failed to unlock $SOURCE"
+          ALL_UNLOCKED=false
+
+          # Clean up any devices we've already unlocked
+          for j in $(seq 0 $((i-1))); do
+            CLEANUP_MAPPER="$MAPPER_BASE-$j"
+            ${pkgs.cryptsetup}/bin/cryptsetup luksClose "$CLEANUP_MAPPER" 2>/dev/null || true
+          done
+
+          # Detach loop devices if needed
+          if [ "$MOUNT_TYPE" = "loop" ]; then
+            for SOURCE_CLEANUP in "''${SOURCES[@]}"; do
+              for LOOP in $(${pkgs.util-linux}/bin/losetup -j "$SOURCE_CLEANUP" 2>/dev/null | cut -d: -f1); do
+                ${pkgs.util-linux}/bin/losetup -d "$LOOP" 2>/dev/null || true
+              done
+            done
+          fi
+
+          break
+        fi
+      done
+
+      # If all devices unlocked successfully, mount them
+      if [ "$ALL_UNLOCKED" = true ]; then
         # Create mount point if needed
         mkdir -p "$MOUNT_POINT"
 
-        # Mount the decrypted device
-        ${pkgs.util-linux}/bin/mount -t ${mount.fsType} "/dev/mapper/$MAPPER_NAME" "$MOUNT_POINT"
+        # Mount the decrypted devices
+        # For btrfs with multiple devices, mount with all devices specified
+        if [ "$FS_TYPE" = "btrfs" ] && [ ''${#CRYPT_DEVICES[@]} -gt 1 ]; then
+          # Mount first device, btrfs will automatically detect and use other devices
+          ${pkgs.util-linux}/bin/mount -t btrfs "''${CRYPT_DEVICES[0]}" "$MOUNT_POINT"
+        else
+          # Single device mount (ext4 or single btrfs device)
+          ${pkgs.util-linux}/bin/mount -t "$FS_TYPE" "''${CRYPT_DEVICES[0]}" "$MOUNT_POINT"
+        fi
 
-        echo "Successfully mounted $MAPPER_NAME at $MOUNT_POINT"
+        echo "Successfully mounted at $MOUNT_POINT"
 
         # Exit after successful mount - service will remain active due to RemainAfterExit
         exit 0
       else
-        echo "Failed to unlock $SOURCE, waiting for retry..."
+        echo "Failed to unlock all devices, waiting for retry..."
       fi
     done
   '';
@@ -153,7 +210,11 @@ let
 
       source = mkOption {
         type = types.str;
-        description = "Path to the encrypted block device or file";
+        description = ''
+          Path to the encrypted block device or file.
+          For btrfs with redundancy, specify multiple devices separated by commas (e.g., "/dev/sda,/dev/sdb").
+          For ext4, only a single device is allowed.
+        '';
         example = "/dev/sda1";
       };
 
@@ -225,14 +286,22 @@ in
 
   config = mkIf cfg.enable {
     # Validate all mounts
-    assertions = flatten (mapAttrsToList (name: mount: [
+    assertions = flatten (mapAttrsToList (name: mount:
+      let
+        sources = lib.splitString "," mount.source;
+        hasMultipleSources = (builtins.length sources) > 1;
+      in [
       {
-        assertion = builtins.match "^/.*" mount.source != null;
-        message = "Mount '${name}': source must be an absolute path";
+        assertion = builtins.all (s: builtins.match "^/.*" s != null) sources;
+        message = "Mount '${name}': all source paths must be absolute paths";
       }
       {
         assertion = builtins.match "^/.*" mount.mountPoint != null;
         message = "Mount '${name}': mountPoint must be an absolute path";
+      }
+      {
+        assertion = !hasMultipleSources || mount.fsType == "btrfs";
+        message = "Mount '${name}': multiple devices (comma-separated) are only supported with btrfs filesystem";
       }
     ]) cfg.mounts);
 

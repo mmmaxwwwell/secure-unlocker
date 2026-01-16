@@ -58,6 +58,13 @@ Then in your `configuration.nix`, configure the module:
         mountPoint = "/mnt/backup";
         fsType = "ext4";  # Optional, defaults to ext4
       };
+      # Multi-device btrfs with RAID1 for redundancy
+      redundant-storage = {
+        type = "block";
+        source = "/dev/sdc1,/dev/sdd1";  # Comma-separated devices
+        mountPoint = "/mnt/redundant";
+        fsType = "btrfs";
+      };
     };
   };
 }
@@ -86,6 +93,13 @@ Add the module to your NixOS configuration using `fetchTarball`:
         source = "/dev/sdb1";
         mountPoint = "/mnt/backup";
         fsType = "ext4";  # Optional, defaults to ext4
+      };
+      # Multi-device btrfs with RAID1 for redundancy
+      redundant-storage = {
+        type = "block";
+        source = "/dev/sdc1,/dev/sdd1";  # Comma-separated devices
+        mountPoint = "/mnt/redundant";
+        fsType = "btrfs";
       };
     };
   };
@@ -139,6 +153,16 @@ To use btrfs instead:
 sudo secure-unlocker-init --source /dev/sdb1 --type block --fsType btrfs
 ```
 
+To use btrfs with multiple devices for redundancy (RAID1):
+```bash
+sudo secure-unlocker-init --source /dev/sdb1,/dev/sdc1 --type block --fsType btrfs
+```
+
+This will create a btrfs filesystem with RAID1 profiles (default for multi-device). You can customize the RAID profiles:
+```bash
+sudo secure-unlocker-init --source /dev/sdb1,/dev/sdc1 --type block --fsType btrfs --data-profile raid1 --metadata-profile raid1
+```
+
 #### For a file-backed loop device:
 
 ```bash
@@ -154,6 +178,11 @@ This will:
 To use btrfs instead:
 ```bash
 sudo secure-unlocker-init --source /var/encrypted/storage.img --type loop --size 10G --fsType btrfs
+```
+
+To use btrfs with multiple loop devices for redundancy:
+```bash
+sudo secure-unlocker-init --source /var/encrypted/storage1.img,/var/encrypted/storage2.img --type loop --size 10G --fsType btrfs
 ```
 
 #### Adding additional passwords to existing devices:
@@ -318,11 +347,15 @@ security.acme = {
   - `"loop"`: File-backed storage (e.g., `/var/storage.img`)
 
 ###### `source`
-- Type: `string` (absolute path)
+- Type: `string` (absolute path or comma-separated paths)
 - Required: Yes
 - Description: Path to the encrypted device or file
-- Must be an absolute path starting with `/`
-- Examples: `"/dev/sdb1"`, `"/var/encrypted/storage.img"`
+  - Single device: `"/dev/sdb1"` or `"/var/encrypted/storage.img"`
+  - Multiple devices (btrfs only): `"/dev/sdb1,/dev/sdc1"` for redundancy
+- Must be an absolute path (or paths) starting with `/`
+- Multiple devices are only supported with `fsType = "btrfs"`
+- For ext4, only a single device is allowed
+- Examples: `"/dev/sdb1"`, `"/var/encrypted/storage.img"`, `"/dev/sdb1,/dev/sdc1"`
 
 ###### `mountPoint`
 - Type: `string` (absolute path)
@@ -363,6 +396,14 @@ services.secure-unlocker = {
       source = "/var/lib/encrypted/data.img";
       mountPoint = "/mnt/encrypted-data";
       fsType = "btrfs";  # Use btrfs filesystem
+    };
+
+    # Btrfs with multiple devices for redundancy (RAID1)
+    redundant-backup = {
+      type = "block";
+      source = "/dev/sdb1,/dev/sdc1";  # Comma-separated for multi-device
+      mountPoint = "/mnt/redundant-backup";
+      fsType = "btrfs";  # Required for multi-device
     };
   };
 };
@@ -662,6 +703,63 @@ Or using the init script on an existing device:
 sudo secure-unlocker-init --source /dev/sdb1 --type block
 ```
 
+### Btrfs Multi-Device Support for Redundancy
+
+Btrfs supports using multiple block devices to provide data redundancy through RAID profiles. This is useful for protecting against drive failures.
+
+#### Setting Up Multi-Device Btrfs
+
+Use the init script to create a multi-device encrypted btrfs filesystem:
+
+```bash
+# Create RAID1 btrfs across two devices (data and metadata mirrored)
+sudo secure-unlocker-init --source /dev/sdb1,/dev/sdc1 --type block --fsType btrfs
+
+# Explicitly specify RAID profiles
+sudo secure-unlocker-init --source /dev/sdb1,/dev/sdc1 --type block --fsType btrfs \
+  --data-profile raid1 --metadata-profile raid1
+```
+
+Available RAID profiles:
+- `single`: No redundancy (default for single device)
+- `raid0`: Striping (improved performance, no redundancy)
+- `raid1`: Mirroring (default for multi-device, can survive one drive failure)
+- `raid10`: Striping + Mirroring (requires 4+ devices)
+
+#### Configure in NixOS
+
+```nix
+services.secure-unlocker = {
+  enable = true;
+  mounts = {
+    redundant-storage = {
+      type = "block";
+      source = "/dev/sdb1,/dev/sdc1";  # Comma-separated devices
+      mountPoint = "/mnt/redundant";
+      fsType = "btrfs";
+    };
+  };
+};
+```
+
+#### Important Notes
+
+- All devices must be LUKS-encrypted with the **same password**
+- The init script will format all devices with LUKS2 and create a unified btrfs filesystem
+- When mounting, all encrypted devices are unlocked automatically
+- Btrfs will automatically detect and use all devices in the filesystem
+- If one device fails (in RAID1), your data remains accessible on the other device
+- Multiple devices are **only** supported with btrfs (ext4 requires a single device)
+
+#### Loop Device Multi-Device Example
+
+You can also use multiple loop devices (file-backed):
+
+```bash
+sudo secure-unlocker-init --source /var/encrypted/storage1.img,/var/encrypted/storage2.img \
+  --type loop --size 10G --fsType btrfs
+```
+
 ### Using with Tailscale/Headscale
 
 Configure nginx to listen on your Tailscale IP:
@@ -697,17 +795,24 @@ systemd.services.my-backup-service = {
 
 The project includes integration tests that run in a NixOS VM. These tests verify the complete workflow: creating an encrypted loop device, mounting it, writing data, unmounting, remounting, and verifying data persistence.
 
+Available tests:
+- `integration-test`: Basic ext4 test
+- `integration-test-btrfs`: Single-device btrfs test
+- `integration-test-btrfs-raid1`: Multi-device btrfs with RAID1
+
 #### Using Flakes
 
 ```bash
-# Run all checks (includes integration tests)
+# Run all checks (includes all integration tests)
 nix flake check
 
 # Build and run a specific test
 nix build .#checks.x86_64-linux.integration-test
+nix build .#checks.x86_64-linux.integration-test-btrfs
+nix build .#checks.x86_64-linux.integration-test-btrfs-raid1
 
 # Run with verbose output
-nix build .#checks.x86_64-linux.integration-test --print-build-logs
+nix build .#checks.x86_64-linux.integration-test-btrfs-raid1 --print-build-logs
 ```
 
 #### Without Flakes (Traditional Nix)
@@ -718,9 +823,11 @@ nix-build tests.nix
 
 # Run a specific test
 nix-build tests.nix -A integration-test
+nix-build tests.nix -A integration-test-btrfs
+nix-build tests.nix -A integration-test-btrfs-raid1
 
 # Run with verbose output
-nix-build tests.nix -A integration-test 2>&1 | tee test.log
+nix-build tests.nix -A integration-test-btrfs-raid1 2>&1 | tee test.log
 ```
 
 #### Standalone Script
