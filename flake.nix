@@ -33,7 +33,14 @@
     );
 
     # Integration tests (Linux only - requires VM with root access)
-    # Imports from tests.nix to share test definitions with non-flake users
+    # These tests use the real NixOS module systemd units and Express server
+    # Test matrix covers:
+    #   - ext4 loop device
+    #   - ext4 block device
+    #   - btrfs single loop device
+    #   - btrfs single block device
+    #   - btrfs raid1 multi loop device
+    #   - btrfs raid1 multi block device
     checks = nixpkgs.lib.genAttrs [ "x86_64-linux" "aarch64-linux" ] (system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
@@ -42,7 +49,13 @@
           nixosModule = self.nixosModule;
         };
       in {
-        inherit (tests) integration-test integration-test-btrfs;
+        inherit (tests)
+          integration-test-ext4-loop
+          integration-test-ext4-block
+          integration-test-btrfs-loop
+          integration-test-btrfs-block
+          integration-test-btrfs-raid1-loop
+          integration-test-btrfs-raid1-block;
       }
     );
   };

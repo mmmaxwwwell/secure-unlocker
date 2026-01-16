@@ -793,12 +793,18 @@ systemd.services.my-backup-service = {
 
 ### Running Integration Tests
 
-The project includes integration tests that run in a NixOS VM. These tests verify the complete workflow: creating an encrypted loop device, mounting it, writing data, unmounting, remounting, and verifying data persistence.
+The project includes comprehensive integration tests that run in NixOS VMs. These tests verify the complete workflow: creating encrypted devices, mounting via the API, writing data, unmounting, remounting, and verifying data persistence. Tests also verify Ed25519 authentication enforcement.
 
-Available tests:
-- `integration-test`: Basic ext4 test
-- `integration-test-btrfs`: Single-device btrfs test
-- `integration-test-btrfs-raid1`: Multi-device btrfs with RAID1
+#### Test Matrix
+
+| Test Name | Device Type | Filesystem | Devices | Description |
+|-----------|-------------|------------|---------|-------------|
+| `integration-test-ext4-loop` | Loop (file-backed) | ext4 | 1 | Basic ext4 with loop device |
+| `integration-test-ext4-block` | Block device | ext4 | 1 | Basic ext4 with block device |
+| `integration-test-btrfs-loop` | Loop (file-backed) | btrfs | 1 | Single btrfs with loop device |
+| `integration-test-btrfs-block` | Block device | btrfs | 1 | Single btrfs with block device |
+| `integration-test-btrfs-raid1-loop` | Loop (file-backed) | btrfs | 2 | Btrfs RAID1 with loop devices |
+| `integration-test-btrfs-raid1-block` | Block device | btrfs | 2 | Btrfs RAID1 with block devices |
 
 #### Using Flakes
 
@@ -807,12 +813,15 @@ Available tests:
 nix flake check
 
 # Build and run a specific test
-nix build .#checks.x86_64-linux.integration-test
-nix build .#checks.x86_64-linux.integration-test-btrfs
-nix build .#checks.x86_64-linux.integration-test-btrfs-raid1
+nix build .#checks.x86_64-linux.integration-test-ext4-loop
+nix build .#checks.x86_64-linux.integration-test-ext4-block
+nix build .#checks.x86_64-linux.integration-test-btrfs-loop
+nix build .#checks.x86_64-linux.integration-test-btrfs-block
+nix build .#checks.x86_64-linux.integration-test-btrfs-raid1-loop
+nix build .#checks.x86_64-linux.integration-test-btrfs-raid1-block
 
 # Run with verbose output
-nix build .#checks.x86_64-linux.integration-test-btrfs-raid1 --print-build-logs
+nix build .#checks.x86_64-linux.integration-test-btrfs-raid1-block --print-build-logs
 ```
 
 #### Without Flakes (Traditional Nix)
@@ -822,12 +831,15 @@ nix build .#checks.x86_64-linux.integration-test-btrfs-raid1 --print-build-logs
 nix-build tests.nix
 
 # Run a specific test
-nix-build tests.nix -A integration-test
-nix-build tests.nix -A integration-test-btrfs
-nix-build tests.nix -A integration-test-btrfs-raid1
+nix-build tests.nix -A integration-test-ext4-loop
+nix-build tests.nix -A integration-test-ext4-block
+nix-build tests.nix -A integration-test-btrfs-loop
+nix-build tests.nix -A integration-test-btrfs-block
+nix-build tests.nix -A integration-test-btrfs-raid1-loop
+nix-build tests.nix -A integration-test-btrfs-raid1-block
 
 # Run with verbose output
-nix-build tests.nix -A integration-test-btrfs-raid1 2>&1 | tee test.log
+nix-build tests.nix -A integration-test-btrfs-raid1-block 2>&1 | tee test.log
 ```
 
 #### Standalone Script
@@ -847,24 +859,51 @@ sudo ./integration-test.sh --test-size 64M --init-args '--some-future-option'
 
 ### Adding New Tests
 
-Tests are defined in `tests.nix` using the `mkIntegrationTest` helper function. This makes it easy to add tests for different configurations (e.g., different filesystem types):
+Tests are defined in `tests.nix` using two helper functions:
+
+- `mkLoopDeviceTest`: For file-backed (loop) device tests
+- `mkBlockDeviceTest`: For block device tests (uses NixOS VM `emptyDiskImages`)
+
+#### Loop Device Test Example
 
 ```nix
 # In tests.nix
-{
-  # Existing ext4 test
-  integration-test = mkIntegrationTest {
-    name = "ext4";
-    testSize = "32M";
-  };
+integration-test-ext4-loop = mkLoopDeviceTest {
+  name = "ext4";
+  testSize = "32M";
+  fsType = "ext4";
+  numDevices = 1;
+};
 
-  # Example: Add a btrfs test when filesystem option is implemented
-  integration-test-btrfs = mkIntegrationTest {
-    name = "btrfs";
-    extraInitArgs = "--filesystem btrfs";
-    testSize = "64M";  # btrfs needs more space
-  };
-}
+# Btrfs RAID1 with two loop devices
+integration-test-btrfs-raid1-loop = mkLoopDeviceTest {
+  name = "btrfs-raid1";
+  extraInitArgs = "--fsType btrfs --data-profile raid1 --metadata-profile raid1";
+  testSize = "192M";  # btrfs needs more space
+  fsType = "btrfs";
+  numDevices = 2;
+};
+```
+
+#### Block Device Test Example
+
+```nix
+# In tests.nix
+integration-test-ext4-block = mkBlockDeviceTest {
+  name = "ext4";
+  diskSizeMB = 64;
+  fsType = "ext4";
+  numDevices = 1;
+};
+
+# Btrfs RAID1 with two block devices
+integration-test-btrfs-raid1-block = mkBlockDeviceTest {
+  name = "btrfs-raid1";
+  extraInitArgs = "--fsType btrfs --data-profile raid1 --metadata-profile raid1";
+  diskSizeMB = 192;
+  fsType = "btrfs";
+  numDevices = 2;
+};
 ```
 
 Then add the new test to `flake.nix`:
@@ -874,17 +913,35 @@ checks = nixpkgs.lib.genAttrs [ "x86_64-linux" "aarch64-linux" ] (system:
   let
     tests = import ./tests.nix { /* ... */ };
   in {
-    inherit (tests) integration-test integration-test-btrfs;
+    inherit (tests)
+      integration-test-ext4-loop
+      integration-test-ext4-block
+      integration-test-btrfs-loop
+      integration-test-btrfs-block
+      integration-test-btrfs-raid1-loop
+      integration-test-btrfs-raid1-block;
   }
 );
 ```
 
 ### Test Configuration
 
-The `mkIntegrationTest` function accepts the following parameters:
+#### `mkLoopDeviceTest` Parameters
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `name` | string | required | Test name suffix (e.g., "ext4" creates "secure-unlocker-ext4") |
-| `testSize` | string | "32M" | Size of the test loop device (must be ≥32M for LUKS2 headers) |
+| `name` | string | required | Test name suffix (e.g., "ext4" creates "secure-unlocker-loop-ext4") |
+| `testSize` | string | "32M" | Size of each loop device (must be ≥32M for LUKS2 headers, ≥192M for btrfs) |
+| `fsType` | string | "ext4" | Filesystem type ("ext4" or "btrfs") |
+| `numDevices` | int | 1 | Number of loop devices (use 2+ for btrfs RAID) |
+| `extraInitArgs` | string | "" | Additional arguments passed to `secure-unlocker-init` |
+
+#### `mkBlockDeviceTest` Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `name` | string | required | Test name suffix (e.g., "ext4" creates "secure-unlocker-block-ext4") |
+| `diskSizeMB` | int | 64 | Size of each block device in MB (≥64 for ext4, ≥192 for btrfs) |
+| `fsType` | string | "ext4" | Filesystem type ("ext4" or "btrfs") |
+| `numDevices` | int | 1 | Number of block devices (creates /dev/vdb, /dev/vdc, etc.) |
 | `extraInitArgs` | string | "" | Additional arguments passed to `secure-unlocker-init` |
