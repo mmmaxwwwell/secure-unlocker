@@ -134,7 +134,8 @@ echo ""
 # Check if sources already exist and are initialized
 ALL_EXIST=true
 SOME_EXIST=false
-FIRST_LUKS_SOURCE=""
+ALL_ARE_LUKS=true
+LUKS_SOURCES=()
 
 for SRC in "${SOURCES[@]}"; do
     if [ -e "$SRC" ]; then
@@ -148,35 +149,39 @@ for SRC in "${SOURCES[@]}"; do
 
         # Check if it's a LUKS device
         if cryptsetup isLuks "$SRC" 2>/dev/null; then
-            if [ -z "$FIRST_LUKS_SOURCE" ]; then
-                FIRST_LUKS_SOURCE="$SRC"
-            fi
+            LUKS_SOURCES+=("$SRC")
+        else
+            ALL_ARE_LUKS=false
         fi
     else
         ALL_EXIST=false
+        ALL_ARE_LUKS=false
     fi
 done
 
-# If all sources exist and at least one is LUKS, offer to add password
-if [ "$SOME_EXIST" = true ] && [ -n "$FIRST_LUKS_SOURCE" ]; then
-    echo "Found existing LUKS device(s)."
+# If all sources exist and ALL are LUKS devices, offer to add password
+if [ "$ALL_EXIST" = true ] && [ "$ALL_ARE_LUKS" = true ] && [ ${#LUKS_SOURCES[@]} -gt 0 ]; then
+    echo "Found existing LUKS device(s):"
+    for SRC in "${LUKS_SOURCES[@]}"; do
+        echo "  - $SRC"
+    done
     echo ""
 
     # Show current LUKS information for first device
-    echo "Current LUKS information for $FIRST_LUKS_SOURCE:"
-    cryptsetup luksDump "$FIRST_LUKS_SOURCE" | head -n 20
+    echo "Current LUKS information for ${LUKS_SOURCES[0]}:"
+    cryptsetup luksDump "${LUKS_SOURCES[0]}" | head -n 20
     echo ""
 
     read -p "Do you want to add a new password to all devices? (yes/no): " ADD_PASSWORD
 
     if [ "$ADD_PASSWORD" = "yes" ]; then
         echo ""
-        for SRC in "${SOURCES[@]}"; do
-            if cryptsetup isLuks "$SRC" 2>/dev/null; then
-                echo "Adding new password to $SRC..."
-                cryptsetup luksAddKey "$SRC"
-                echo ""
-            fi
+        echo "You will need to enter an existing password to authorize adding a new one."
+        echo ""
+        for SRC in "${LUKS_SOURCES[@]}"; do
+            echo "Adding new password to $SRC..."
+            cryptsetup luksAddKey "$SRC"
+            echo ""
         done
         echo "Password(s) added successfully!"
         exit 0
@@ -184,6 +189,23 @@ if [ "$SOME_EXIST" = true ] && [ -n "$FIRST_LUKS_SOURCE" ]; then
         echo "No changes made."
         exit 0
     fi
+fi
+
+# Handle case where some sources exist and are LUKS but not all
+if [ "$SOME_EXIST" = true ] && [ ${#LUKS_SOURCES[@]} -gt 0 ] && [ "$ALL_ARE_LUKS" = false ]; then
+    echo "Error: Mixed state detected - some sources are LUKS devices and some are not."
+    echo "For multi-device setups, all devices must be in the same state."
+    echo ""
+    for SRC in "${SOURCES[@]}"; do
+        if cryptsetup isLuks "$SRC" 2>/dev/null; then
+            echo "  LUKS: $SRC"
+        elif [ -e "$SRC" ]; then
+            echo "  NOT LUKS: $SRC"
+        else
+            echo "  MISSING: $SRC"
+        fi
+    done
+    exit 1
 fi
 
 # Check for mixed state (some exist, some don't)
